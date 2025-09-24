@@ -70,7 +70,9 @@ pip install -e .
 ```
 ## 📦 Data Preparation
 1. **Annotations**:
-All annotations will be downloaded automaticly through hugging_face.
+The annotation files need to be obtained from multiple sources:
+- Get `cap3d_captions.json` from: https://huggingface.co/datasets/tiange/Cap3D/tree/main/Objaverse_files (commit 2) and gunzip it.
+- Get other caption files from: https://huggingface.co/datasets/alexzyqi/GPT4Point (commits fbeb522 and 71f3b84)
 
 2. **Point Cloud**:
 You can download the **Cap3D** point cloud dataset through the [Google Drive Link](https://drive.google.com/drive/folders/18uqvjVeEqVIWsZFHxoIXjb1LkZ9ZNTh0?usp=sharing). You should unzip these 10 tar.gz files and then put them together.
