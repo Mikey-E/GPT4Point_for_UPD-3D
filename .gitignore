@@ -180,3 +180,5 @@ cython_debug/
 
 #Other stuff related to the UPD-3D fork
 data
+external_deps
+slurm_logs
