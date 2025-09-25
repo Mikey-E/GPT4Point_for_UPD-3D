@@ -5,8 +5,6 @@ Uses GPT4Point's proper model loading, text processing, and generation parameter
 """
 
 
-import argparse\nimport torch\nimport os\nimport numpy as np\nimport json\nimport open3d as o3d
-
 # GPT4Point imports
 from lavis.common.config import Config
 from lavis.common.registry import registry
@@ -16,6 +14,12 @@ from lavis.datasets.transforms.transforms_point import pc_norm_with_color
 
 # Suppress transformers logging errors
 import logging
+import argparse
+import torch
+import os
+import numpy as np
+import json
+import open3d as o3d
 logging.getLogger('transformers').setLevel(logging.ERROR)
 
 
@@ -257,7 +261,9 @@ def existing_file(path):
         raise argparse.ArgumentTypeError(f"readable_file: '{path}' is not a valid file")
     return path
 
-if __name__ == "__main__":\n    parser = argparse.ArgumentParser(description="Programmatic evaluation code for GPT4Point")\n    parser.add_argument("--model_name", type=str, default="./lavis/output/GPT4Point/",\n                        help="Path to the GPT4Point model checkpoint")
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Programmatic evaluation code for GPT4Point")
+    parser.add_argument("--model_name", type=str, default="./lavis/output/GPT4Point/", help="Path to the GPT4Point model checkpoint")
     parser.add_argument("--upd_text_folder_path", type=existing_dir, required=True, 
                         help="Path to the upd_text/ folder.")
     parser.add_argument("--upd_version_name", type=str, required=False, 
