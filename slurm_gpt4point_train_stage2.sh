@@ -6,7 +6,7 @@
 #SBATCH --output=./slurm_logs/gpt4point_train_stage2_%j.out
 #SBATCH --error=./slurm_logs/gpt4point_train_stage2_%j.out
 #SBATCH --gres=gpu:4
-#SBATCH --mem=32G
+#SBATCH --mem=48G
 #SBATCH --time=24:00:00
 
 #This ensures "conda activate <env>" works in non-interactive shells.

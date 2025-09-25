@@ -8,8 +8,7 @@ model:
   model_type: gpt4point_opt2.7b 
   load_pretrained: True
   # intialize stage 2 pretraining from stage 1 pretrained model
-  pretrained: 
-    storage: gpt4point_pretrain_stage1_cap3d.pth
+  pretrained: lavis/output/GPT4Point/pretrain_stage1_cap3d/20250923220/checkpoint_9.pth
   freeze_point_encoder: True
 
 datasets:       
