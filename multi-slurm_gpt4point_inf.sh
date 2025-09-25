@@ -14,7 +14,7 @@ subfolders=(
 )
 
 for subfolder in "${subfolders[@]}"; do
-    sbatch slurm_pllm_inf.sh \
+    sbatch slurm_gpt4point_inf.sh \
         --model_name ./lavis/output/GPT4Point/pretrain_stage2_cap3d_opt2.7b/checkpoint_best.pth \
         --upd_text_folder_path /project/3dllms/melgin/UPD-3D/upd_text/ \
         --unzipped_point_cloud_path /gscratch/melgin/CEA/Crops3D/ \

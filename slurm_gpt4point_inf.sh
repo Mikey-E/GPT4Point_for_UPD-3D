@@ -49,4 +49,4 @@ conda activate gpt4point
 cd /project/3dllms/melgin/GPT4Point_for_UPD-3D/
 
 # Run the GPT4Point inference script
-python pllm_inf.py "$@"
+python gpt4point_inf.py "$@"
