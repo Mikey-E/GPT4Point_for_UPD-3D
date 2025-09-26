@@ -14,9 +14,11 @@
 # Fail fast and keep a clean environment
 set -euo pipefail
 
-# Ensure we run from the repo root, robustly resolving symlinks
-SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
-SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
+# Probably best to do this early
+cd /project/3dllms/melgin/GPT4Point_for_UPD-3D/
+
+# Use the current directory after cd for PYTHONPATH
+SCRIPT_DIR="/project/3dllms/melgin/GPT4Point_for_UPD-3D"
 
 # Ensure Python can import the top-level package regardless of cwd quirks
 export PYTHONPATH="$SCRIPT_DIR:${PYTHONPATH:-}"
@@ -45,8 +47,6 @@ else
 fi
 # Now the activation should work
 conda activate gpt4point
-
-cd /project/3dllms/melgin/GPT4Point_for_UPD-3D/
 
 # Run the GPT4Point inference script
 python gpt4point_inf.py "$@"

@@ -9,7 +9,6 @@ Uses GPT4Point's proper model loading, text processing, and generation parameter
 from lavis.common.config import Config
 from lavis.common.registry import registry
 from lavis.models import load_model
-from lavis.processors import load_processor
 from lavis.datasets.transforms.transforms_point import pc_norm_with_color
 
 # Suppress transformers logging errors
@@ -75,12 +74,26 @@ def make_named_ply_files(identifier_at_scene_list, unzipped_point_cloud_path):
     print(f"[INFO] Path format summary: {new_format_count} new format, {old_format_count} old format, {missing_count} missing files", flush=True)
     return results
 
-def load_point_cloud(file_path):
+def load_point_cloud(file_path, debug_mode=False):
     """Load a point cloud from a PLY file and process it for GPT4Point input."""
+    if debug_mode:
+        print(f"[DEBUG] Loading point cloud from: {file_path}", flush=True)
+    
+    if not os.path.exists(file_path):
+        print(f"[ERROR] Point cloud file does not exist: {file_path}", flush=True)
+        return None
+    
     try:
         pcd = o3d.io.read_point_cloud(file_path)
         points = np.asarray(pcd.points)  # xyz
         colors = np.asarray(pcd.colors)  # rgb, if available
+        
+        if debug_mode:
+            print(f"[DEBUG] Raw point cloud - points: {points.shape}, colors: {colors.shape}", flush=True)
+        
+        if points.size == 0:
+            print(f"[ERROR] Point cloud has no points: {file_path}", flush=True)
+            return None
         
         # If no colors, create default white colors (matching GPT4Point dataset behavior)
         if colors.size == 0:
@@ -106,6 +119,11 @@ def load_point_cloud(file_path):
         
         # Use GPT4Point's normalization (matches the evaluation processor)
         point_cloud = pc_norm_with_color(point_cloud)
+        
+        # Debug: Check point cloud before final conversion
+        if debug_mode:
+            print(f"[DEBUG] Point cloud after normalization - shape: {point_cloud.shape}, range: [{point_cloud.min():.4f}, {point_cloud.max():.4f}]", flush=True)
+        
         point_cloud = torch.from_numpy(point_cloud).unsqueeze_(0).to(torch.float32).cuda()
         
         return point_cloud
@@ -119,7 +137,6 @@ def inference(
         unzipped_point_cloud_path,
         upd_subset_name,
         model,
-        text_processor,
         json_tag=None
     ):
     """Perform batch inference on point clouds and prompts using GPT4Point."""
@@ -127,8 +144,14 @@ def inference(
         identifier_at_scene_list = f.read().splitlines()
     pcl_list_txt_filename_noext = os.path.basename(os.path.normpath(pcl_list_txt_file_path)).replace('.txt', '')
 
+    print(f"[INFO] Found {len(identifier_at_scene_list)} samples to process", flush=True)
+
     pc_ply_list = make_named_ply_files(identifier_at_scene_list, unzipped_point_cloud_path)
     upd_txt_file_list = make_named_upd_txt_files(identifier_at_scene_list, updtext_versionfolder_subfolder_path)
+
+    if len(pc_ply_list) == 0:
+        print("[ERROR] No point cloud files found!", flush=True)
+        return
 
     results = {}  # Dictionary to store all results
     
@@ -137,24 +160,32 @@ def inference(
         try:
             print(f"[PROGRESS] Processing sample {idx}/{total_samples}: {ply_file.hex}@{ply_file.scene_name}", flush=True)
             
-            # Read prompt
+            # Read prompt (UPD-3D text files contain complete prompts, no preprocessing needed)
             with open(txt_file, 'r') as f:
                 prompt = f.read().strip()
 
-            # Load and process point cloud
-            point_clouds = load_point_cloud(ply_file.name)
+            # Load and process point cloud (enable debug for first few samples)
+            debug_mode = idx <= 3  # Only debug first 3 samples
+            point_clouds = load_point_cloud(ply_file.name, debug_mode)
             if point_clouds is None:
                 print(f"[ERROR] Failed to load point cloud: {ply_file.name}", flush=True)
                 continue
-
-            # Process text input using GPT4Point's text processor (matches evaluation setup)
-            processed_text = text_processor(prompt)
+            
+            # Debug: Verify point cloud data (only for first few samples)
+            if debug_mode:
+                print(f"[DEBUG] Point cloud shape: {point_clouds.shape}, dtype: {point_clouds.dtype}, device: {point_clouds.device}", flush=True)
+                print(f"[DEBUG] Point cloud min: {point_clouds.min():.4f}, max: {point_clouds.max():.4f}, mean: {point_clouds.mean():.4f}", flush=True)
+                print(f"[DEBUG] First few points: {point_clouds[0, :3, :3]}", flush=True)
             
             # Create sample format expected by GPT4Point
             samples = {
                 "point": point_clouds,
-                "text_input": [processed_text]  # GPT4Point expects a list
+                "text_input": [prompt]  # Use raw prompt text directly
             }
+            
+            # Debug: Verify model input format (only for first few samples)
+            if debug_mode:
+                print(f"[DEBUG] Model input - point shape: {samples['point'].shape}, text: '{samples['text_input'][0][:100]}...'", flush=True)
 
             # Generate response using GPT4Point's generate method with evaluation parameters
             with torch.inference_mode():
@@ -202,6 +233,11 @@ def init_model(args):
     print(f'[INFO] Loading GPT4Point model from: {model_path}', flush=True)
     
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"[DEBUG] Using device: {device}", flush=True)
+    
+    if torch.cuda.is_available():
+        print(f"[DEBUG] GPU memory before model loading: {torch.cuda.memory_allocated() / 1024**3:.2f} GB allocated", flush=True)
+        print(f"[DEBUG] GPU memory available: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GB total", flush=True)
     
     try:
         # Load model using LAVIS registry system - matches GPT4Point evaluation approach
@@ -216,7 +252,38 @@ def init_model(args):
         if model_path and os.path.exists(model_path):
             if os.path.isfile(model_path):
                 print(f'[INFO] Loading checkpoint from: {model_path}', flush=True)
-                model.load_checkpoint(model_path)
+                try:
+                    # Try loading with strict=True first
+                    model.load_checkpoint(model_path)
+                    print(f'[INFO] Checkpoint loaded successfully (strict mode)', flush=True)
+                except Exception as e:
+                    print(f'[WARNING] Strict checkpoint loading failed: {e}', flush=True)
+                    print('[INFO] Attempting to load checkpoint with strict=False (allowing missing keys)...', flush=True)
+                    try:
+                        # Load checkpoint manually with strict=False
+                        checkpoint = torch.load(model_path, map_location='cpu')
+                        if 'model' in checkpoint:
+                            state_dict = checkpoint['model']
+                        else:
+                            state_dict = checkpoint
+                        
+                        missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
+                        
+                        if missing_keys:
+                            print(f'[WARNING] Missing keys in checkpoint: {len(missing_keys)} keys', flush=True)
+                            print(f'[DEBUG] First 10 missing keys: {missing_keys[:10]}', flush=True)
+                        
+                        if unexpected_keys:
+                            print(f'[WARNING] Unexpected keys in checkpoint: {len(unexpected_keys)} keys', flush=True)
+                            print(f'[DEBUG] First 10 unexpected keys: {unexpected_keys[:10]}', flush=True)
+                        
+                        print(f'[INFO] Checkpoint loaded successfully (non-strict mode)', flush=True)
+                        
+                    except Exception as e2:
+                        print(f'[ERROR] Failed to load checkpoint even with strict=False: {e2}', flush=True)
+                        import traceback
+                        print(f'[ERROR] Non-strict loading traceback: {traceback.format_exc()}', flush=True)
+                        raise
             elif os.path.isdir(model_path):
                 # Try common checkpoint names
                 checkpoint_files = [
@@ -239,16 +306,26 @@ def init_model(args):
             print(f'[WARNING] Model path does not exist: {model_path}', flush=True)
             print('[INFO] Using default pretrained model', flush=True)
         
+        print("[DEBUG] Setting model to eval mode...", flush=True)
         model.eval()
+        print("[DEBUG] Model eval mode set", flush=True)
         
-        # Load text processor to match GPT4Point's evaluation setup
-        text_processor = load_processor("blip_caption", 
-                                      cfg={"prompt": "a 3D point cloud of "})
+        print("[INFO] Model loaded successfully", flush=True)
+        print(f"[DEBUG] Model device: {next(model.parameters()).device}", flush=True)
+        print(f"[DEBUG] Model parameters count: {sum(p.numel() for p in model.parameters()):,}", flush=True)
         
-        return model, text_processor
+        # Check GPU memory usage after model loading
+        if torch.cuda.is_available():
+            print(f"[DEBUG] GPU memory allocated: {torch.cuda.memory_allocated() / 1024**3:.2f} GB", flush=True)
+            print(f"[DEBUG] GPU memory reserved: {torch.cuda.memory_reserved() / 1024**3:.2f} GB", flush=True)
+            print(f"[DEBUG] GPU memory total: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GB", flush=True)
+        
+        return model
         
     except Exception as e:
         print(f"[ERROR] Failed to load model: {e}", flush=True)
+        import traceback
+        print(f"[ERROR] Full traceback: {traceback.format_exc()}", flush=True)
         raise
 
 def existing_dir(path):
@@ -289,15 +366,29 @@ if __name__ == "__main__":
         raise ValueError(f"Error: '{updtext_versionfolder_subfolder_path}' is not a valid folder path.")
 
     # Initialize model
-    model, text_processor = init_model(args)
+    print("[DEBUG] Starting model initialization...", flush=True)
+    model = init_model(args)
+    print("[DEBUG] Model initialization completed", flush=True)
+    
+    # Quick model test
+    print("[DEBUG] Testing model with dummy input...", flush=True)
+    try:
+        dummy_points = torch.randn(1, 8192, 6).cuda()
+        dummy_samples = {"point": dummy_points, "text_input": ["test"]}
+        with torch.no_grad():
+            _ = model.generate(dummy_samples, max_length=10, num_beams=1)
+        print("[DEBUG] Model test successful", flush=True)
+    except Exception as e:
+        print(f"[ERROR] Model test failed: {e}", flush=True)
+        raise
 
     # Run batch inference
+    print("[DEBUG] Starting inference...", flush=True)
     inference(
         pcl_list_txt_file_path=args.pcl_list_txt_file_path,
         updtext_versionfolder_subfolder_path=updtext_versionfolder_subfolder_path,
         unzipped_point_cloud_path=args.unzipped_point_cloud_path,
         upd_subset_name=args.upd_version_name_subfolder,
         model=model,
-        text_processor=text_processor,
         json_tag=args.json_tag
     )
